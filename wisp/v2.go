@@ -1,0 +1,233 @@
+package wisp
+
+import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/binary"
+	"errors"
+)
+
+var errorInvalid = errors.New("invalid wisp v2 payload")
+
+type extensions struct {
+	udp           bool
+	streamConfirm bool
+
+	passwordUsername string
+	passwordPassword string
+
+	certificateSelected   uint8
+	certificatePubkeyHash [32]byte
+	certificateSig        []byte
+}
+
+func (c *wispConnection) buildServerInfoPacket() []byte {
+	var extensions []byte
+
+	if !c.config.DisableUDP {
+		extensions = addExtension(extensions, extensionUDP, nil)
+	}
+
+	if c.config.PasswordAuth {
+		var meta [1]byte
+		if c.config.PasswordAuthRequired {
+			meta[0] = 1
+		}
+		extensions = addExtension(extensions, extensionPasswordAuth, meta[:])
+	}
+
+	if c.config.CertAuth && len(c.config.CertAuthPublicKeys) > 0 {
+		challenge := make([]byte, 64)
+		rand.Read(challenge)
+		c.v2Challenge = challenge
+
+		meta := make([]byte, 2+len(challenge))
+		if c.config.CertAuthRequired {
+			meta[0] = 1
+		}
+		meta[1] = sigEd25519
+		copy(meta[2:], challenge)
+		extensions = addExtension(extensions, extensionCertificateAuth, meta)
+	}
+
+	if c.config.Motd != "" {
+		extensions = addExtension(extensions, extensionMotd, []byte(c.config.Motd))
+	}
+
+	if c.config.EnableStreamConfirm {
+		extensions = addExtension(extensions, extensionStreamConfirm, nil)
+	}
+
+	payload := make([]byte, 5+2+len(extensions))
+	payload[0] = packetTypeInfo
+	payload[5] = wispMajorVersion
+	payload[6] = wispMinorVersion
+	copy(payload[7:], extensions)
+
+	return payload
+}
+
+func addExtension(buf []byte, id uint8, metadata []byte) []byte {
+	entry := make([]byte, 5+len(metadata))
+	entry[0] = id
+	binary.LittleEndian.PutUint32(entry[1:5], uint32(len(metadata)))
+	if len(metadata) > 0 {
+		copy(entry[5:], metadata)
+	}
+	return append(buf, entry...)
+}
+
+func parseClientInfo(payload []byte) (*extensions, error) {
+	if len(payload) < 2 {
+		return nil, errorInvalid
+	}
+
+	exts := &extensions{}
+	data := payload[2:]
+
+	for len(data) >= 5 {
+		extID := data[0]
+		extLen := binary.LittleEndian.Uint32(data[1:5])
+		data = data[5:]
+
+		if uint32(len(data)) < extLen {
+			return nil, errorInvalid
+		}
+
+		meta := data[:extLen]
+		data = data[extLen:]
+
+		switch extID {
+		case extensionUDP:
+			exts.udp = true
+
+		case extensionPasswordAuth:
+			if len(meta) < 1 {
+				return nil, errorInvalid
+			}
+			usernameLen := int(meta[0])
+			if len(meta) < 1+usernameLen {
+				return nil, errorInvalid
+			}
+			exts.passwordUsername = string(meta[1 : 1+usernameLen])
+			exts.passwordPassword = string(meta[1+usernameLen:])
+
+		case extensionCertificateAuth:
+			if len(meta) < 33 {
+				return nil, errorInvalid
+			}
+			exts.certificateSelected = meta[0]
+			copy(exts.certificatePubkeyHash[:], meta[1:33])
+			exts.certificateSig = make([]byte, len(meta)-33)
+			copy(exts.certificateSig, meta[33:])
+
+		case extensionStreamConfirm:
+			exts.streamConfirm = true
+		}
+	}
+
+	return exts, nil
+}
+
+func (c *wispConnection) v2Handshake() {
+	c.handshakeDone = make(chan struct{})
+
+	infoPayload := c.buildServerInfoPacket()
+	c.sendRawFrame(infoPayload)
+
+	c.readLoop()
+}
+
+func (c *wispConnection) handleInfo(streamId uint32, payload []byte) {
+	if streamId != 0 {
+		return
+	}
+
+	clientExts, err := parseClientInfo(payload)
+	if err != nil {
+		c.sendClosePacket(0, closeReasonIncompatible)
+		c.close()
+		return
+	}
+
+	authRequired := c.config.PasswordAuthRequired || c.config.CertAuthRequired
+	authPassed := false
+
+	if c.config.PasswordAuth && clientExts.passwordUsername != "" {
+		expectedPassword, userExists := c.config.PasswordUsers[clientExts.passwordUsername]
+		if userExists && expectedPassword == clientExts.passwordPassword {
+			authPassed = true
+		} else {
+			c.sendClosePacket(0, closeReasonAuthBadPassword)
+			c.close()
+			return
+		}
+	}
+
+	if c.config.CertAuth && len(clientExts.certificateSig) > 0 && c.v2Challenge != nil {
+		if c.verifyCertificate(clientExts) {
+			authPassed = true
+		} else {
+			c.sendClosePacket(0, closeReasonAuthBadSignature)
+			c.close()
+			return
+		}
+	}
+
+	if authRequired && !authPassed {
+		c.sendClosePacket(0, closeReasonAuthRequired)
+		c.close()
+		return
+	}
+
+	c.streamConfirm = c.config.EnableStreamConfirm && clientExts.streamConfirm
+
+	c.sendPacket(0, c.config.BufferRemainingLength)
+
+	close(c.handshakeDone)
+}
+
+func (c *wispConnection) verifyCertificate(exts *extensions) bool {
+	if exts.certificateSelected&sigEd25519 == 0 {
+		return false
+	}
+
+	for _, pubKey := range c.config.CertAuthPublicKeys {
+		hash := sha256.Sum256([]byte(pubKey))
+		if hash == exts.certificatePubkeyHash {
+			if ed25519.Verify(pubKey, c.v2Challenge, exts.certificateSig) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (c *wispConnection) sendRawFrame(packet []byte) {
+	totalLen := len(packet)
+	var frame []byte
+
+	if totalLen <= 125 {
+		frame = make([]byte, 2+totalLen)
+		frame[0] = 0x82
+		frame[1] = byte(totalLen)
+		copy(frame[2:], packet)
+	} else if totalLen <= 65535 {
+		frame = make([]byte, 4+totalLen)
+		frame[0] = 0x82
+		frame[1] = 126
+		frame[2] = byte(totalLen >> 8)
+		frame[3] = byte(totalLen)
+		copy(frame[4:], packet)
+	} else {
+		frame = make([]byte, 10+totalLen)
+		frame[0] = 0x82
+		frame[1] = 127
+		binary.BigEndian.PutUint64(frame[2:10], uint64(totalLen))
+		copy(frame[10:], packet)
+	}
+
+	c.queueWrite(frame)
+}
