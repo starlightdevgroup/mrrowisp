@@ -90,6 +90,9 @@ Copy `example.config.json` to `config.json` and edit as needed:
 
 The server will start listening on the configured port. Connect with any Wisp-compatible client.
 
+## License
+AGPL v3
+
 ## Credits
  - [soap phia](https://github.com/soap-phia/) - writing most of this
  - [rebecca](https://github.com/rebeccaheartz69/) - greatly helping with implementing wisp v2 and extensions
