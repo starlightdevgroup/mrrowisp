@@ -20,16 +20,19 @@ type Config struct {
 	BufferRemainingLength uint32 `json:"bufferRemainingLength"`
 	TcpNoDelay            bool   `json:"tcpNoDelay"`
 	WebsocketTcpNoDelay   bool   `json:"websocketTcpNoDelay"`
-	Blacklist             struct {
+
+	Blacklist struct {
 		Hostnames []string `json:"hostnames"`
 	} `json:"blacklist"`
 	Whitelist struct {
 		Hostnames []string `json:"hostnames"`
 	} `json:"whitelist"`
-	Proxy                      string `json:"proxy"`
-	WebsocketPermessageDeflate bool   `json:"websocketPermessageDeflate"`
-	DnsServer                  string `json:"dnsServer"`
-	EnableTwisp                bool   `json:"enableTwisp"`
+
+	Proxy                      string   `json:"proxy"`
+	WebsocketPermessageDeflate bool     `json:"websocketPermessageDeflate"`
+	DnsServers                 []string `json:"dnsServers"`
+
+	EnableTwisp bool `json:"enableTwisp"`
 
 	EnableV2             bool              `json:"enableV2"`
 	Motd                 string            `json:"motd"`
@@ -111,7 +114,7 @@ func createWispConfig(cfg Config) *wisp.Config {
 		pubKeys = append(pubKeys, ed25519.PublicKey(hexKeyBytes))
 	}
 
-	return &wisp.Config{
+	wispCfg := &wisp.Config{
 		DisableUDP:            cfg.DisableUDP,
 		TcpBufferSize:         cfg.TcpBufferSize,
 		BufferRemainingLength: cfg.BufferRemainingLength,
@@ -129,7 +132,7 @@ func createWispConfig(cfg Config) *wisp.Config {
 		},
 		Proxy:                      cfg.Proxy,
 		WebsocketPermessageDeflate: cfg.WebsocketPermessageDeflate,
-		DnsServer:                  cfg.DnsServer,
+		DnsServers:                 cfg.DnsServers,
 		EnableTwisp:                cfg.EnableTwisp,
 		EnableV2:                   cfg.EnableV2,
 		Motd:                       cfg.Motd,
@@ -141,6 +144,12 @@ func createWispConfig(cfg Config) *wisp.Config {
 		CertAuthPublicKeys:         pubKeys,
 		EnableStreamConfirm:        cfg.EnableStreamConfirm,
 	}
+
+	if wispCfg.PasswordUsers == nil {
+		wispCfg.PasswordUsers = make(map[string]string)
+	}
+
+	return wispCfg
 }
 
 func main() {

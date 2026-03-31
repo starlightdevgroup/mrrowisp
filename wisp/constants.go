@@ -14,7 +14,7 @@ const (
 	twispExtensionID uint8 = 0xF0
 
 	wispMajorVersion         uint8 = 2
-	wispMinorVersion         uint8 = 0
+	wispMinorVersion         uint8 = 1
 	extensionUDP             uint8 = 0x01
 	extensionPasswordAuth    uint8 = 0x02
 	extensionCertificateAuth uint8 = 0x03

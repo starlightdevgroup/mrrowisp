@@ -17,6 +17,7 @@ type extensions struct {
 	passwordUsername string
 	passwordPassword string
 
+	certificateUsername   string
 	certificateSelected   uint8
 	certificatePubkeyHash [32]byte
 	certificateSig        []byte
@@ -114,13 +115,23 @@ func parseClientInfo(payload []byte) (*extensions, error) {
 			exts.passwordPassword = string(meta[1+usernameLen:])
 
 		case extensionCertificateAuth:
-			if len(meta) < 33 {
+			if len(meta) < 1 {
 				return nil, errorInvalid
 			}
-			exts.certificateSelected = meta[0]
-			copy(exts.certificatePubkeyHash[:], meta[1:33])
-			exts.certificateSig = make([]byte, len(meta)-33)
-			copy(exts.certificateSig, meta[33:])
+			usernameLen := int(meta[0])
+			if len(meta) < 1+usernameLen+1+32 {
+				return nil, errorInvalid
+			}
+			exts.certificateUsername = string(meta[1 : 1+usernameLen])
+			pos := 1 + usernameLen
+			exts.certificateSelected = meta[pos]
+			pos++
+			copy(exts.certificatePubkeyHash[:], meta[pos:pos+32])
+			pos += 32
+			if pos < len(meta) {
+				exts.certificateSig = make([]byte, len(meta)-pos)
+				copy(exts.certificateSig, meta[pos:])
+			}
 
 		case extensionStreamConfirm:
 			exts.streamConfirm = true

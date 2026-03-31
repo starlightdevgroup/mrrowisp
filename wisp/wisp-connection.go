@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -106,6 +107,7 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 		wispConn:  c,
 		streamId:  streamId,
 		connReady: make(chan struct{}),
+		hostname:  strings.ToLower(strings.TrimSpace(hostname)),
 	}
 	stream.isOpen.Store(true)
 

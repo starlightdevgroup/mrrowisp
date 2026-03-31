@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -17,6 +18,7 @@ type wispStream struct {
 	streamType      uint8
 	conn            net.Conn
 	bufferRemaining uint32
+	hostname        string
 
 	connReady     chan struct{}
 	connReadyDone atomic.Bool
@@ -31,10 +33,18 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 	defer s.signalConnReady()
 
 	cfg := s.wispConn.config
+	s.hostname = strings.ToLower(strings.TrimSpace(hostname))
 
-	if _, blacklisted := cfg.Blacklist.Hostnames[hostname]; blacklisted {
-		s.close(closeReasonBlocked)
-		return
+	if len(cfg.Whitelist.Hostnames) > 0 {
+		if _, ok := cfg.Whitelist.Hostnames[s.hostname]; !ok {
+			s.close(closeReasonBlocked)
+			return
+		}
+	} else if len(cfg.Blacklist.Hostnames) > 0 {
+		if _, ok := cfg.Blacklist.Hostnames[s.hostname]; ok {
+			s.close(closeReasonBlocked)
+			return
+		}
 	}
 
 	resolvedHostname := hostname
@@ -45,11 +55,11 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 				s.close(closeReasonUnreachable)
 				return
 			}
-			resolvedHostname = ips[0].IP.String()
-			if resolvedHostname == "0.0.0.0" || resolvedHostname == "::" {
-				s.close(closeReasonBlocked)
+			if len(ips) == 0 {
+				s.close(closeReasonUnreachable)
 				return
 			}
+			resolvedHostname = ips[0].IP.String()
 		}
 	}
 
@@ -69,7 +79,7 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 			}
 			s.conn, err = dialer.Dial("tcp", destination)
 		} else {
-			s.conn, err = net.Dial("tcp", destination)
+			s.conn, err = cfg.Dialer.Dial("tcp", destination)
 		}
 	case streamTypeUDP:
 		if cfg.DisableUDP || cfg.Proxy != "" {
@@ -83,7 +93,7 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 	}
 
 	if err != nil {
-		s.close(closeReasonNetworkError)
+		s.close(mapDialError(err))
 		return
 	}
 
@@ -198,4 +208,27 @@ func (s *wispStream) close(reason uint8) {
 	}
 
 	s.wispConn.sendClosePacket(s.streamId, reason)
+}
+
+func mapDialError(err error) uint8 {
+	if err == nil {
+		return closeReasonUnspecified
+	}
+
+	errStr := err.Error()
+
+	if strings.Contains(errStr, "connection refused") {
+		return closeReasonConnectionRefused
+	}
+	if strings.Contains(errStr, "no such host") || strings.Contains(errStr, "no address") {
+		return closeReasonUnreachable
+	}
+	if strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline exceeded") {
+		return closeReasonTimeout
+	}
+	if strings.Contains(errStr, "network is unreachable") || strings.Contains(errStr, "host is unreachable") {
+		return closeReasonUnreachable
+	}
+
+	return closeReasonNetworkError
 }
