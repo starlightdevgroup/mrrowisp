@@ -1,4 +1,4 @@
-![night chan](./night%20chan.png)
+![night chan](https://raw.githubusercontent.com/starlightdevgroup/mrrowisp/main/night%20chan.png)
 
 it has the zoomies
 

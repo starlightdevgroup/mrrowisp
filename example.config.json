@@ -13,7 +13,7 @@
 	},
 	"proxy": "",
 	"websocketPermessageDeflate": false,
-	"dnsServer": "",
+	"dnsServer": [],
 	"enableTwisp": false,
 	"enableV2": true,
 	"motd": "",

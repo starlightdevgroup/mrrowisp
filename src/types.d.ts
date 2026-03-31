@@ -15,7 +15,7 @@ export type Config = {
 	};
 	proxy?: string;
 	websocketPermessageDeflate?: boolean;
-	dnsServer?: string;
+	dnsServer?: string[];
 	enableTwisp?: boolean;
 	enableV2: boolean;
 	motd?: string;
@@ -60,7 +60,7 @@ export type WispBuilder = {
 	blacklist(hostnames: string[]): WispBuilder;
 	whitelist(hostnames: string[]): WispBuilder;
 	proxy(url: string): WispBuilder;
-	dns(server: string): WispBuilder;
+	dns(servers: string | string[]): WispBuilder;
 	onReady(callback: () => void): WispBuilder;
 	onError(callback: (error: Error) => void): WispBuilder;
 	onExit(callback: (code: number | null, signal: NodeJS.Signals | null) => void): WispBuilder;

@@ -150,8 +150,8 @@ class WispBuilderImpl implements WispBuilder {
 		return this;
 	}
 
-	dns(server: string): WispBuilder {
-		this.config.dnsServer = server;
+	dns(servers: string | string[]): WispBuilder {
+		this.config.dnsServer = Array.isArray(servers) ? servers : [servers];
 		return this;
 	}
 

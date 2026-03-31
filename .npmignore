@@ -1,0 +1,7 @@
+src/
+wisp/
+build.sh
+go.*
+*.go
+./mrrowisp
+*.png
