@@ -1,7 +1,6 @@
 package wisp
 
 import (
-	"context"
 	"crypto/ed25519"
 	"net"
 	"net/http"
@@ -12,21 +11,26 @@ import (
 )
 
 type Config struct {
-	DisableUDP            bool
+	DisableUDP bool
+
 	TcpBufferSize         int
 	BufferRemainingLength uint32
 	TcpNoDelay            bool
 	WebsocketTcpNoDelay   bool
-	Blacklist             struct {
+
+	Blacklist struct {
 		Hostnames map[string]struct{}
 	}
 	Whitelist struct {
 		Hostnames map[string]struct{}
 	}
+
 	Proxy                      string
 	WebsocketPermessageDeflate bool
-	DnsServer                  string
-	EnableTwisp                bool
+
+	DnsServers []string
+
+	EnableTwisp bool
 
 	EnableV2             bool
 	Motd                 string
@@ -38,24 +42,24 @@ type Config struct {
 	CertAuthPublicKeys   []ed25519.PublicKey
 	EnableStreamConfirm  bool
 
-	DNSCache *DNSCache
-
+	DNSCache    *DNSCache
 	ReadBufPool sync.Pool
+	Dialer      net.Dialer
+}
 
-	Dialer net.Dialer
+func DefaultConfig() *Config {
+	return &Config{
+		DisableUDP:            false,
+		TcpBufferSize:         32768,
+		BufferRemainingLength: 65536,
+		TcpNoDelay:            true,
+		WebsocketTcpNoDelay:   true,
+		PasswordUsers:         make(map[string]string),
+	}
 }
 
 func (c *Config) InitResolver() {
-	if c.DnsServer != "" {
-		resolver := &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "udp", c.DnsServer)
-			},
-		}
-		c.DNSCache = NewDNSCache(resolver, 5*time.Minute)
-	}
+	c.DNSCache = NewDNSCache(c.DnsServers)
 }
 
 type upgradeHandler struct {
