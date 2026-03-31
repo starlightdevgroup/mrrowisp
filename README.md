@@ -62,7 +62,7 @@ const server = await createMrrowisp()
 	.twisp(true)
 	.motd("mrrow merp purr :3")
 	.blacklist(["truthsocial.com"]) // idk i'd block this
-	.dns("8.8.8.8")
+	.dns(["8.8.8.8","1.1.1.1"])
 	.start();
 ```
 
