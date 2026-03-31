@@ -18,7 +18,7 @@
 		"chalk": "^5.6.2"
 	},
 	"scripts": {
-		"build:ts": "tsc && cp ./example.config.json ./dist/example.config.json",
+		"build:ts": "tsc && cp ./example.config.json ./dist/config.json",
 		"build:bin": "bash build.sh",
 		"build": "bun run build:ts && bun run build:bin"
 	}
