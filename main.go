@@ -4,15 +4,17 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"mrrowisp/wisp"
 )
 
 type Config struct {
-	Port                  string `json:"port"`
+	Port                  int    `json:"port"`
 	DisableUDP            bool   `json:"disableUDP"`
 	TcpBufferSize         int    `json:"tcpBufferSize"`
 	BufferRemainingLength uint32 `json:"bufferRemainingLength"`
@@ -40,17 +42,46 @@ type Config struct {
 	EnableStreamConfirm  bool              `json:"enableStreamConfirm"`
 }
 
-func loadConfig(filename string) (Config, error) {
-	file, err := os.Open(filename)
+func defaultConfig() Config {
+	return Config{
+		Port:                       6001,
+		DisableUDP:                 false,
+		TcpBufferSize:              32768,
+		BufferRemainingLength:      65536,
+		TcpNoDelay:                 true,
+		WebsocketTcpNoDelay:        true,
+		WebsocketPermessageDeflate: false,
+		EnableTwisp:                false,
+		EnableV2:                   false,
+		PasswordAuth:               false,
+		PasswordAuthRequired:       false,
+		PasswordUsers:              make(map[string]string),
+		CertAuth:                   false,
+		CertAuthRequired:           false,
+		EnableStreamConfirm:        false,
+	}
+}
+
+func loadConfig(config string) (Config, error) {
+	cfg := defaultConfig()
+
+	trimConfig := strings.TrimSpace(config)
+	if strings.HasPrefix(trimConfig, "{") {
+		if err := json.Unmarshal([]byte(trimConfig), &cfg); err != nil {
+			return cfg, err
+		}
+		return cfg, nil
+	}
+
+	file, err := os.Open(config)
 	if err != nil {
-		return Config{}, err
+		return cfg, err
 	}
 	defer file.Close()
 
-	var cfg Config
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(&cfg); err != nil {
-		return Config{}, err
+		return cfg, err
 	}
 	return cfg, nil
 }
@@ -113,19 +144,35 @@ func createWispConfig(cfg Config) *wisp.Config {
 }
 
 func main() {
-	cfg, err := loadConfig("config.json")
-	if err != nil {
-		fmt.Printf("failed to load config: %v", err)
-		return
+	fConfig := flag.String("config", "", "config to load (file or json string)")
+	fPort := flag.Int("port", 0, "port to run on")
+	flag.Parse()
+
+	var cfg Config
+	var err error
+
+	if *fConfig != "" {
+		cfg, err = loadConfig(*fConfig)
+		if err != nil {
+			fmt.Printf("Failed to load config: %v\n", err)
+			return
+		}
+	} else {
+		cfg = defaultConfig()
 	}
+
+	if *fPort != 0 {
+		cfg.Port = *fPort
+	}
+
 	wispConfig := createWispConfig(cfg)
 
 	wispHandler := wisp.CreateWispHandler(wispConfig)
 
 	http.HandleFunc("/", wispHandler)
-	fmt.Printf("starting wisp server on port %s. . .", cfg.Port)
-	err = http.ListenAndServe(":"+cfg.Port, nil)
+	fmt.Printf("Starting Mrrowisp on port %d. . .", cfg.Port)
+	err = http.ListenAndServe(fmt.Sprintf(":%d", cfg.Port), nil)
 	if err != nil {
-		fmt.Printf("failed to start server: %v", err)
+		fmt.Printf("Failed to start Mrrowisp: %v", err)
 	}
 }
