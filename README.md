@@ -182,7 +182,7 @@ Copy `example.config.json` to `config.json` and edit as needed:
 
 ```json
 {
-	"port": "6001",
+	"port": 6001,
 	"disableUDP": false,
 	"tcpBufferSize": 65535,
 	"bufferRemainingLength": 1024,
