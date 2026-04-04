@@ -90,7 +90,10 @@ class WispBuilderImpl implements WispBuilder {
 	};
 
 	constructor() {
-		this.config = JSON.parse(fs.readFileSync(wispConfigPath, "utf-8"));
+		const configPath = fs.existsSync(wispConfigPath)
+			? wispConfigPath
+			: new URL("../dist/example.config.json", import.meta.url).pathname;
+		this.config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 	}
 
 	fromFile(path: string): WispBuilder {
